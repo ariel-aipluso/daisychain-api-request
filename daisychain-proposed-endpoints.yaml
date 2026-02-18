@@ -1,0 +1,965 @@
+openapi: "3.1.0"
+info:
+  title: Daisychain API — Proposed Messaging & Analytics Endpoints
+  version: "1.0.0"
+  description: |
+    This document proposes new read-only API endpoints for Daisychain's existing
+    REST API (v1). These endpoints would replace the current CSV export workflow
+    for messages, broadcasts, automations, and conversations — enabling real-time,
+    programmatic access to campaign data and analytics.
+
+    All proposed endpoints follow the conventions established by the existing
+    Daisychain API: REST over HTTPS, `/api/v1/` prefix, `X-API-Token` header
+    authentication, and the standard pagination envelope.
+
+    ## Motivation
+
+    We currently rely on manual CSV exports (messages, campaigns, flows, people)
+    to power an SMS analytics dashboard. This is slow, error-prone, and prevents
+    real-time reporting. The endpoints below would allow us to query messages,
+    campaigns, and pre-computed metrics directly via the API.
+
+    ## Scope
+
+    - **All endpoints are read-only (GET)**. No create/update/delete operations
+      are proposed.
+    - **Schemas mirror existing CSV export columns.** Daisychain already exposes
+      this data through file exports, so the API would serve the same underlying
+      data.
+
+    ## Future Considerations
+
+    **Automation versioning:** For analytics purposes, it would be valuable to
+    distinguish between different revisions of a flow's configuration — for example,
+    when node content or structure changes between sends. If automation versioning
+    is tracked internally, exposing a version identifier on automation and message
+    records would enable version-over-version performance comparison. This is not
+    included as an endpoint in this proposal but noted as a potential future
+    enhancement.
+
+servers:
+  - url: https://go.daisychain.app
+    description: Production
+
+security:
+  - ApiKeyAuth: []
+
+paths:
+  # ---------------------------------------------------------------------------
+  # Messages
+  # ---------------------------------------------------------------------------
+  /api/v1/messages:
+    get:
+      operationId: listMessages
+      summary: List messages
+      description: |
+        Returns a paginated list of messages across all campaigns, flows, and
+        conversations. Supports filtering by person, direction, campaign,
+        automation, and date range.
+      tags: [Messages]
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PerPageParam"
+        - $ref: "#/components/parameters/PersonIdFilter"
+        - $ref: "#/components/parameters/DirectionFilter"
+        - $ref: "#/components/parameters/StatusFilter"
+        - $ref: "#/components/parameters/BroadcastIdFilter"
+        - $ref: "#/components/parameters/AutomationIdFilter"
+        - $ref: "#/components/parameters/CreatedAfterFilter"
+        - $ref: "#/components/parameters/CreatedBeforeFilter"
+      responses:
+        "200":
+          description: Paginated list of messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/messages/{message_id}:
+    get:
+      operationId: getMessage
+      summary: Get a single message
+      tags: [Messages]
+      parameters:
+        - name: message_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Message details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    $ref: "#/components/schemas/Message"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/people/{person_id}/messages:
+    get:
+      operationId: listPersonMessages
+      summary: List messages for a person
+      description: |
+        Returns all messages exchanged with a specific person, ordered
+        chronologically. Useful for reconstructing full conversation history.
+      tags: [Messages]
+      parameters:
+        - name: person_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PerPageParam"
+        - $ref: "#/components/parameters/DirectionFilter"
+        - $ref: "#/components/parameters/CreatedAfterFilter"
+        - $ref: "#/components/parameters/CreatedBeforeFilter"
+      responses:
+        "200":
+          description: Paginated list of the person's messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Broadcasts (Campaigns)
+  # ---------------------------------------------------------------------------
+  /api/v1/broadcasts:
+    get:
+      operationId: listBroadcasts
+      summary: List broadcasts
+      description: Returns a paginated list of broadcast campaigns.
+      tags: [Broadcasts]
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PerPageParam"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [draft, scheduled, sending, sent, cancelled]
+        - $ref: "#/components/parameters/CreatedAfterFilter"
+        - $ref: "#/components/parameters/CreatedBeforeFilter"
+      responses:
+        "200":
+          description: Paginated list of broadcasts
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  broadcasts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Broadcast"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/broadcasts/{broadcast_id}:
+    get:
+      operationId: getBroadcast
+      summary: Get a single broadcast
+      tags: [Broadcasts]
+      parameters:
+        - name: broadcast_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Broadcast details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  broadcast:
+                    $ref: "#/components/schemas/Broadcast"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/broadcasts/{broadcast_id}/messages:
+    get:
+      operationId: listBroadcastMessages
+      summary: List messages for a broadcast
+      description: |
+        Returns messages associated with a specific broadcast campaign.
+        Can be filtered by direction and variant name.
+      tags: [Broadcasts]
+      parameters:
+        - name: broadcast_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PerPageParam"
+        - $ref: "#/components/parameters/DirectionFilter"
+        - name: variant_name
+          in: query
+          description: Filter by A/B test variant name
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Paginated list of broadcast messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/broadcasts/{broadcast_id}/variants:
+    get:
+      operationId: listBroadcastVariants
+      summary: List A/B test variants for a broadcast
+      description: |
+        Returns the message variants configured for a broadcast campaign.
+      tags: [Broadcasts]
+      parameters:
+        - name: broadcast_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: List of variants
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  variants:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Variant"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/broadcasts/{broadcast_id}/metrics:
+    get:
+      operationId: getBroadcastMetrics
+      summary: Get aggregate metrics for a broadcast
+      description: |
+        Returns pre-computed engagement metrics for a broadcast campaign,
+        including response rates, opt-out rates, engagement depth, and
+        per-variant breakdowns.
+      tags: [Broadcasts]
+      parameters:
+        - name: broadcast_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Broadcast metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    $ref: "#/components/schemas/CampaignMetrics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Automations (Flows)
+  # ---------------------------------------------------------------------------
+  /api/v1/automations:
+    get:
+      operationId: listAutomations
+      summary: List automations
+      description: Returns a paginated list of automation flows.
+      tags: [Automations]
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PerPageParam"
+        - name: status
+          in: query
+          schema:
+            type: string
+            enum: [active, paused, draft, archived]
+      responses:
+        "200":
+          description: Paginated list of automations
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  automations:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Automation"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /api/v1/automations/{automation_id}:
+    get:
+      operationId: getAutomation
+      summary: Get a single automation
+      tags: [Automations]
+      parameters:
+        - name: automation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Automation details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  automation:
+                    $ref: "#/components/schemas/Automation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/automations/{automation_id}/messages:
+    get:
+      operationId: listAutomationMessages
+      summary: List messages for an automation
+      description: |
+        Returns messages associated with a specific automation flow.
+        Can be filtered by direction and node name.
+      tags: [Automations]
+      parameters:
+        - name: automation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PerPageParam"
+        - $ref: "#/components/parameters/DirectionFilter"
+        - name: node_name
+          in: query
+          description: Filter by automation node name
+          schema:
+            type: string
+        - name: broadcast_id
+          in: query
+          description: Filter by broadcast within the automation
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/CreatedAfterFilter"
+        - $ref: "#/components/parameters/CreatedBeforeFilter"
+      responses:
+        "200":
+          description: Paginated list of automation messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/automations/{automation_id}/metrics:
+    get:
+      operationId: getAutomationMetrics
+      summary: Get aggregate metrics for an automation
+      description: |
+        Returns pre-computed engagement metrics for an automation flow,
+        including response rates, opt-out rates, engagement depth, and
+        per-variant breakdowns.
+      tags: [Automations]
+      parameters:
+        - name: automation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Automation metrics
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  metrics:
+                    $ref: "#/components/schemas/CampaignMetrics"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  # ---------------------------------------------------------------------------
+  # Conversations
+  # ---------------------------------------------------------------------------
+  /api/v1/conversations/{conversation_id}:
+    get:
+      operationId: getConversation
+      summary: Get a conversation
+      description: Returns metadata about a conversation thread.
+      tags: [Conversations]
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Conversation details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  conversation:
+                    $ref: "#/components/schemas/Conversation"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+  /api/v1/conversations/{conversation_id}/messages:
+    get:
+      operationId: listConversationMessages
+      summary: List messages in a conversation
+      description: |
+        Returns all messages in a conversation thread, ordered chronologically.
+      tags: [Conversations]
+      parameters:
+        - name: conversation_id
+          in: path
+          required: true
+          schema:
+            type: integer
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PerPageParam"
+      responses:
+        "200":
+          description: Paginated list of conversation messages
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  messages:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Message"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+
+# =============================================================================
+# Components
+# =============================================================================
+components:
+  securitySchemes:
+    ApiKeyAuth:
+      type: apiKey
+      in: header
+      name: X-API-Token
+      description: |
+        API key created via the Daisychain web interface
+        (Settings > API Keys).
+
+  # ---------------------------------------------------------------------------
+  # Reusable Parameters
+  # ---------------------------------------------------------------------------
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      description: Page number (1-indexed)
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PerPageParam:
+      name: per_page
+      in: query
+      description: Number of records per page
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+
+    PersonIdFilter:
+      name: person_id
+      in: query
+      description: Filter messages by person ID
+      schema:
+        type: integer
+
+    DirectionFilter:
+      name: direction
+      in: query
+      description: Filter by message direction
+      schema:
+        type: string
+        enum: [incoming, outgoing]
+
+    StatusFilter:
+      name: status
+      in: query
+      description: Filter by delivery status
+      schema:
+        type: string
+        enum: [sent, delivered, received, undelivered, failed]
+
+    BroadcastIdFilter:
+      name: broadcast_id
+      in: query
+      description: Filter messages by broadcast campaign ID
+      schema:
+        type: integer
+
+    AutomationIdFilter:
+      name: automation_id
+      in: query
+      description: Filter messages by automation flow ID
+      schema:
+        type: integer
+
+    CreatedAfterFilter:
+      name: created_after
+      in: query
+      description: "Only return records created after this timestamp (ISO 8601)"
+      schema:
+        type: string
+        format: date-time
+
+    CreatedBeforeFilter:
+      name: created_before
+      in: query
+      description: "Only return records created before this timestamp (ISO 8601)"
+      schema:
+        type: string
+        format: date-time
+
+  # ---------------------------------------------------------------------------
+  # Reusable Responses
+  # ---------------------------------------------------------------------------
+  responses:
+    Unauthorized:
+      description: Invalid or missing API key
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+
+  # ---------------------------------------------------------------------------
+  # Schemas
+  # ---------------------------------------------------------------------------
+  schemas:
+    # --- Core Resources ---
+
+    Message:
+      type: object
+      description: |
+        An individual SMS message. Fields mirror the columns available in
+        Daisychain's CSV message exports.
+      properties:
+        id:
+          type: integer
+          description: Unique message identifier
+        conversation_id:
+          type: ["integer", "null"]
+          description: Conversation thread this message belongs to
+        person_id:
+          type: integer
+          description: ID of the person (contact) associated with this message
+        direction:
+          type: string
+          enum: [incoming, outgoing]
+          description: |
+            `outgoing` = sent by the organization to the person;
+            `incoming` = received from the person
+        status:
+          type: string
+          enum: [sent, delivered, received, undelivered, failed]
+          description: Delivery status of the message
+        error_code:
+          type: ["string", "null"]
+          description: Carrier or provider error code (if delivery failed)
+        external_id:
+          type: ["string", "null"]
+          description: External provider message ID (e.g. Twilio SID)
+        from:
+          type: string
+          description: Sender phone number
+        to:
+          type: string
+          description: Recipient phone number
+        body:
+          type: string
+          description: Message text content
+        segment_count:
+          type: ["integer", "null"]
+          description: Number of SMS segments used
+        billing_kind:
+          type: ["string", "null"]
+          description: Billing classification for the message
+        phone_number_type:
+          type: ["string", "null"]
+          description: "Type of the recipient's phone (e.g. mobile, landline, fixedVoip)"
+        carrier_name:
+          type: ["string", "null"]
+          description: "Recipient's carrier name"
+        message_variant_name:
+          type: ["string", "null"]
+          description: |
+            A/B test variant name. Populated on the initial broadcast message
+            to each recipient. Null for flow responses and non-variant sends.
+        message_node_id:
+          type: ["integer", "null"]
+          description: Automation node ID (populated for flow messages)
+        message_node_name:
+          type: ["string", "null"]
+          description: Automation node name (populated for flow messages)
+        current_node_id:
+          type: ["integer", "null"]
+          description: Current node in the automation at time of message
+        broadcast_id:
+          type: ["integer", "null"]
+          description: Broadcast campaign ID (if message is part of a broadcast)
+        broadcast_name:
+          type: ["string", "null"]
+          description: Broadcast campaign name
+        automation_id:
+          type: ["integer", "null"]
+          description: Automation flow ID (if message is part of a flow)
+        automation_name:
+          type: ["string", "null"]
+          description: Automation flow name
+        automation_execution_id:
+          type: ["integer", "null"]
+          description: Specific execution instance of the automation
+        opt_out_reason:
+          type: ["string", "null"]
+          description: Reason for opt-out (if this message triggered an opt-out)
+        accepted_at:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp when the message was accepted by the carrier
+        sent_at:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp when the message was sent
+        created_at:
+          type: string
+          format: date-time
+          description: Timestamp when the message record was created
+
+    Broadcast:
+      type: object
+      description: A broadcast campaign (single send to a segment of people).
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          description: Display name of the broadcast
+        status:
+          type: string
+          enum: [draft, scheduled, sending, sent, cancelled]
+        total_recipients:
+          type: integer
+          description: Number of people targeted
+        sent_count:
+          type: integer
+          description: Messages successfully sent
+        delivered_count:
+          type: integer
+          description: Messages confirmed delivered
+        failed_count:
+          type: integer
+          description: Messages that failed delivery
+        variants:
+          type: array
+          items:
+            $ref: "#/components/schemas/Variant"
+          description: A/B test variants (if configured)
+        created_at:
+          type: string
+          format: date-time
+        scheduled_at:
+          type: ["string", "null"]
+          format: date-time
+        sent_at:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp when sending began
+        completed_at:
+          type: ["string", "null"]
+          format: date-time
+          description: Timestamp when all messages were sent
+
+    Variant:
+      type: object
+      description: An A/B test variant within a broadcast.
+      properties:
+        name:
+          type: string
+          description: Variant identifier (e.g. "A", "B", or a descriptive name)
+        body:
+          type: string
+          description: Message text for this variant
+        recipient_count:
+          type: integer
+          description: Number of people who received this variant
+
+    Automation:
+      type: object
+      description: An automation flow (multi-step conversation sequence).
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          description: Display name of the automation
+        status:
+          type: string
+          enum: [active, paused, draft, archived]
+        nodes:
+          type: array
+          items:
+            $ref: "#/components/schemas/AutomationNode"
+          description: Summary of nodes/steps in the flow
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    AutomationNode:
+      type: object
+      description: A node (step) within an automation flow.
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+          description: Node display name
+        position:
+          type: integer
+          description: Order of the node in the flow
+
+    Conversation:
+      type: object
+      description: A conversation thread between the organization and a person.
+      properties:
+        id:
+          type: integer
+        person_id:
+          type: integer
+          description: The person this conversation is with
+        status:
+          type: ["string", "null"]
+          description: Conversation status (e.g. open, closed)
+        message_count:
+          type: integer
+          description: Total messages in this conversation
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    # --- Metrics ---
+
+    CampaignMetrics:
+      type: object
+      description: |
+        Pre-computed engagement metrics for a broadcast or automation.
+        These replace the calculations currently done client-side from
+        CSV exports.
+      properties:
+        total_recipients:
+          type: integer
+          description: |
+            Unique people who received an outgoing message
+            (excluding undelivered/failed)
+        total_responders:
+          type: integer
+          description: Unique people who sent at least one incoming message
+        response_rate:
+          type: number
+          format: float
+          description: "total_responders / total_recipients (0.0 – 1.0)"
+        active_responders:
+          type: integer
+          description: Responders who have not opted out
+        active_responder_rate:
+          type: number
+          format: float
+          description: "active_responders / total_recipients (0.0 – 1.0)"
+        opt_out_count:
+          type: integer
+          description: People who opted out after receiving the campaign
+        opt_out_rate:
+          type: number
+          format: float
+          description: "opt_out_count / total_recipients (0.0 – 1.0)"
+        engagement_depth:
+          $ref: "#/components/schemas/EngagementDepth"
+        by_variant:
+          type: array
+          items:
+            $ref: "#/components/schemas/VariantMetrics"
+          description: |
+            Per-variant breakdown. Empty array if the campaign has no
+            A/B test variants.
+
+    EngagementDepth:
+      type: object
+      description: |
+        Counts of active responders (not opted out) by number of
+        incoming messages sent.
+      properties:
+        one_response:
+          type: integer
+          description: People with exactly 1 incoming message
+        two_plus_responses:
+          type: integer
+          description: People with 2 or more incoming messages
+        three_plus_responses:
+          type: integer
+          description: People with 3 or more incoming messages
+
+    VariantMetrics:
+      type: object
+      description: Engagement metrics scoped to a single A/B test variant.
+      properties:
+        variant_name:
+          type: string
+        recipients:
+          type: integer
+          description: People who received this variant
+        responders:
+          type: integer
+          description: People who replied after receiving this variant
+        reply_rate:
+          type: number
+          format: float
+          description: "responders / recipients (0.0 – 1.0)"
+        opt_out_count:
+          type: integer
+        opt_out_rate:
+          type: number
+          format: float
+          description: "opt_out_count / recipients (0.0 – 1.0)"
+        active_responders:
+          type: integer
+          description: Responders minus opted-out people
+        active_responder_rate:
+          type: number
+          format: float
+        median_active_responses:
+          type: number
+          format: float
+          description: Median number of incoming messages among active responders
+
+    # --- Pagination & Errors ---
+
+    PaginationMeta:
+      type: object
+      description: |
+        Pagination envelope matching the existing Daisychain API convention
+        (as used by POST /api/v1/people/match).
+      properties:
+        current_page:
+          type: integer
+        total_pages:
+          type: integer
+        total_count:
+          type: integer
+        prev_page:
+          type: ["integer", "null"]
+        next_page:
+          type: ["integer", "null"]
+        first_page:
+          type: integer
+        last_page:
+          type: integer
+
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Human-readable error message
